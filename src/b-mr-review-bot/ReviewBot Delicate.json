@@ -1,0 +1,374 @@
+{
+  "name": "B: ReviewBot Delicate (상세 리뷰)",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 0],
+      "id": "12f11af0-735a-4595-8c67-6981058c7c63",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "content": "## 📋 ReviewBot Delicate — 설정 가이드\n\n이 워크플로우는 **ReviewBot (메인)** 에서 호출되는 서브 워크플로우입니다.\n직접 실행하지 않고, 메인 워크플로우에 연결해서 사용합니다.\n\n### 필요한 Credentials\n- **GitLab API**: `Get MR Changes`, `Write Detailed Comment` 노드에 적용\n  - GitLab Personal Access Token (`api` 스코프)\n- **Google Gemini(PaLM) API**: `Google Gemini Chat Model` 노드에 적용\n  - Google AI Studio에서 API Key 발급\n- **Redis**: `Redis Chat Memory` 노드에 적용\n  - Redis 서버 Host, Port, Password 입력\n\n### ReviewBot Simple과의 차이\n- **Simple**: MR 전체 파일을 보고 종합 리뷰 → MR 전체 코멘트로 작성\n- **Delicate (이 워크플로우)**: Diff 라인에 `리뷰봇이것만` 댓글 입력 시 해당 특정 파일만 상세 분석 → 해당 Discussion 스레드에 답글로 작성\n\n### GitLab URL 확인\n`Get MR Changes` / `Write Detailed Comment` 노드의 URL에서\n`https://lab.ssafy.com` 부분이 본인 GitLab 서버 주소와 일치하는지 확인하세요.",
+        "height": 440,
+        "width": 560,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [0, -500],
+      "id": "setup-guide-delicate-reviewbot-001",
+      "name": "Setup Guide Delicate"
+    },
+    {
+      "parameters": {
+        "content": "## ✨ 이 서브 워크플로우가 하는 일\n\n**ReviewBot (메인)** 에서 아래 상황에 호출됩니다\n- MR의 특정 코드 라인(DiffNote)에 `리뷰봇이것만` 댓글 입력 시\n\n**처리 흐름**\n1. GitLab API로 MR 전체 변경사항 가져오기\n2. 이미지/바이너리/node_modules 등 불필요 파일 자동 제외\n3. Google Gemini AI가 **댓글이 달린 파일**을 집중 분석하여 상세 리뷰 작성\n4. 작성된 리뷰를 해당 **댓글 스레드(Discussion)에 답글**로 등록\n\n**ReviewBot Simple과의 차이**\n→ Simple: MR 전체를 보고 요약 리뷰 → MR 전체 코멘트로 등록\n→ Delicate (이 워크플로우): 특정 파일만 집중 분석 → 해당 스레드 답글로 등록",
+        "height": 300,
+        "width": 460,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -920
+      ],
+      "id": "feature-guide-delicate-reviewbot-001",
+      "name": "Feature Guide Delicate"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=다음 MR을 검토하고, 그 중에서 {{ $json.target_file }} 파일에 대해서만 상세한 코드 리뷰 코멘트를 작성해주세요.\n\n# MR 정보:\n{{ \n  $json.title + \"\\n\\n\" +\n  $json.description + \"\\n\\n대상 브랜치: \" +\n  $json.source_branch + \" → \" +\n  $json.target_branch\n}}\n\n# 변경된 파일:\n{{ \n  $json.changes.map(file => `- ${file.file_path}`).join('\\n')\n}}\n\n# 실제 변경사항:\n{{ \n  $json.changes.map(file => {\n    return `## ${file.file_path}\\n\\n\\`\\`\\`\\n${file.diff}\\n\\`\\`\\`\\n\\n`;\n  }).join('')\n}}\n",
+        "options": {
+          "systemMessage": "=<역할>\n당신은 10년차 개발자입니다. 같은 팀의 동료가 제출한 MR을 리뷰합니다.\n\n<목표>\n작성된 코드를 면밀히 분석하고 실제 빅테크 기업 스타일의 코드 리뷰를 제공하는 것이 목표입니다.\n\n<코드리뷰 가이드>\n- 항상 친절하고 교육적인 피드백을 제공합니다.\n- 긍정적인 부분과 개선이 필요한 부분을 균형 있게 다룹니다.\n\n<코멘트 작성 가이드>\n- 과도한 형식이나 번호 매기기를 피하세요\n- 마크다운 형식(#, ##, - 등)을 절대 사용하지 마세요. (`) 같은 코드 형식은 가능합니다.\n- 파일별 구분이나 섹션 구분 없이, 일반 텍스트로만 작성하세요.\n- 실제 개발자처럼 자연스럽게 작성하세요 (예: \"이 부분은 좋네요\", \"여기는 이렇게 개선하면 좋을 것 같아요\")\n- 과장된 표현이나 지나친 칭찬은 피하세요\n- \"격려\", \"마무리\" 같은 인위적인 섹션 제목을 사용하지 마세요\n- 꼭 필요한 경우에만 코드 예시를 제공해주세요\n- 한국어로 작성하되, 개발 용어는 영어로 표기할 수 있습니다"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.8,
+      "position": [896, 128],
+      "id": "e8b6a820-2b02-497a-9f0d-163ffc740a60",
+      "name": "Code Review Agent"
+    },
+    {
+      "parameters": {
+        "url": "=https://lab.ssafy.com/api/v4/projects/{{ $json.body.project.id }}/merge_requests/{{ $json.body.merge_request.iid }}/changes",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "gitlabApi",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [224, 0],
+      "id": "070a9c85-abf4-425d-809e-df39622bb02e",
+      "name": "Get MR Changes",
+      "credentials": {
+        "gitlabApi": {
+          "id": "YOUR_GITLAB_CREDENTIAL_ID",
+          "name": "GitLab"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Code 노드: 바이너리 및 미디어 파일 필터링 추가\nconst changes = $input.item.json.changes || [];\nlet processedChanges = [];\n\n// 코드 리뷰가 불필요한 파일 확장자 목록\nconst skipExtensions = [\n  // 이미지 파일\n  '.jpg', '.jpeg', '.png', '.gif', '.svg', '.ico', '.webp', '.bmp', '.tiff',\n  // 오디오 파일\n  '.mp3', '.wav', '.ogg', '.flac', '.aac', '.m4a',\n  // 비디오 파일\n  '.mp4', '.webm', '.avi', '.mov', '.mkv', '.flv',\n  // 문서 및 기타 바이너리 파일\n  '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',\n  // 압축 파일\n  '.zip', '.rar', '.tar', '.gz', '.7z',\n  // 기타 바이너리 파일\n  '.bin', '.exe', '.dll', '.so', '.dylib',\n  // 폰트 파일\n  '.ttf', '.otf', '.woff', '.woff2',\n  // 기타 미디어 리소스\n  '.psd', '.ai', '.sketch'\n];\n\n// 파일 필터링 및 처리 함수\nfunction shouldProcessFile(filePath) {\n  const lowerPath = filePath.toLowerCase();\n  // 확장자 기반 필터링\n  for (const ext of skipExtensions) {\n    if (lowerPath.endsWith(ext)) return false;\n  }\n  \n  // 특정 디렉토리 필터링 (예: assets, public/images 등)\n  const skipDirs = ['node_modules/', 'dist/', 'build/'];\n  for (const dir of skipDirs) {\n    if (lowerPath.includes(dir)) return false;\n  }\n  \n  return true;\n}\n\n// 바이너리 파일 감지 보조 함수 (diff 내용으로 판단)\nfunction isBinaryContent(diff) {\n  // 바이너리 파일의 diff는 종종 \"Binary files ... differ\" 같은 메시지를 포함함\n  if (diff.includes('Binary files') && diff.includes('differ')) return true;\n  \n  // NULL 바이트 감지 (바이너리 파일 표시)\n  if (diff.includes('\\0')) return true;\n  \n  // Base64 인코딩된 내용이 지배적인지 확인 (이미지 데이터 등)\n  const base64Pattern = /^[A-Za-z0-9+/=]{20,}$/m;\n  const lines = diff.split('\\n');\n  let base64Lines = 0;\n  \n  for (let i = 0; i < Math.min(lines.length, 10); i++) {\n    if (base64Pattern.test(lines[i])) base64Lines++;\n  }\n  \n  // 상당수의 라인이 base64로 인코딩된 것으로 보이면 바이너리로 취급\n  return base64Lines > 5;\n}\n\n// 파일 변경 유형 판단 함수 추가\nfunction getChangeType(change) {\n  const {new_path, old_path, diff} = change;\n  \n  // 파일 삭제 감지\n  if (new_path === '/dev/null' || diff.startsWith('deleted file mode')) {\n    return 'delete';\n  }\n  \n  // 파일명 변경만 있는 경우 감지\n  if (old_path !== new_path && old_path !== '/dev/null') {\n    // diff 내용 검사\n    const actualDiffLines = diff.split('\\n')\n      .filter(line => line.startsWith('+') || line.startsWith('-'))\n      .filter(line => !line.startsWith('+++') && !line.startsWith('---'));\n    \n    // 실제 내용 변경이 없으면 rename으로 판단\n    if (actualDiffLines.length === 0) {\n      return 'rename';\n    }\n    \n    // 이름 변경과 함께 내용 변경이 있는 경우\n    return 'rename+modify';\n  }\n  \n  // 새 파일 추가\n  if (old_path === '/dev/null' || diff.startsWith('new file mode')) {\n    return 'add';\n  }\n  \n  // 기본은 수정으로 간주\n  return 'modify';\n}\n\n// 변경사항 필터링 및 처리\nfor (const change of changes) {\n  const {old_path, new_path, diff} = change;\n  const changeType = getChangeType(change);\n  \n  // 리뷰가 필요한 변경 유형 필터링\n  // 'add'와 'modify', 'rename+modify'만 처리하고 'rename'과 'delete'는 제외\n  if ((changeType === 'add' || changeType === 'modify' || changeType === 'rename+modify') &&\n      shouldProcessFile(new_path) && \n      !isBinaryContent(diff)) {\n    \n    // 큰 파일 요약 (이전 코드와 동일)\n    const isTooLarge = diff.length > 10000;\n    const processedDiff = isTooLarge \n      ? `${diff.substring(0, 5000)}... (내용 생략) ...${diff.substring(diff.length - 5000)}` \n      : diff;\n    \n    processedChanges.push({\n      file_path: new_path,\n      old_path: old_path !== new_path ? old_path : null,\n      change_type: changeType,\n      is_summarized: isTooLarge,\n      diff: processedDiff\n    });\n  }\n}\n\n// 변경 유형별 카운트 추가 (선택사항, 로깅용)\nconst typeCounts = {\n  add: changes.filter(c => getChangeType(c) === 'add').length,\n  modify: changes.filter(c => getChangeType(c) === 'modify').length,\n  delete: changes.filter(c => getChangeType(c) === 'delete').length,\n  rename: changes.filter(c => getChangeType(c) === 'rename').length,\n  'rename+modify': changes.filter(c => getChangeType(c) === 'rename+modify').length\n};\n\n// MR 기본 정보\nconst mrInfo = {\n  // 기존 정보와 동일\n  changes: processedChanges,\n  // 디버깅/로깅용 정보\n  change_type_counts: typeCounts\n};\n\nreturn {json: mrInfo};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [448, 0],
+      "id": "aaeed122-0182-4b14-bae8-5e55a9de5419",
+      "name": "MR Preprocessing"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "d7d5f726-2ca7-4e4c-a285-5f9a71193346",
+              "name": "project_id",
+              "value": "={{ $('Get MR Changes').item.json.project_id }}",
+              "type": "string"
+            },
+            {
+              "id": "15e37193-c37d-4104-82ba-66aead4b68dd",
+              "name": "mr_id",
+              "value": "={{ $('Get MR Changes').item.json.iid }}",
+              "type": "string"
+            },
+            {
+              "id": "f3cb2c82-06a0-4cd9-a43f-052413741469",
+              "name": "discussion_id",
+              "value": "={{ $('When Executed by Another Workflow').item.json.body.object_attributes.discussion_id }}",
+              "type": "string"
+            },
+            {
+              "id": "763d0020-7a4b-48fe-8bd0-6d02cef3defb",
+              "name": "title",
+              "value": "={{ $('Get MR Changes').item.json.title }}",
+              "type": "string"
+            },
+            {
+              "id": "4521f3a8-9eda-42e1-b515-9e1829d9907f",
+              "name": "description",
+              "value": "={{ $('Get MR Changes').item.json.description }}",
+              "type": "string"
+            },
+            {
+              "id": "50e0871a-99b6-4c84-b3a0-ddc6a096c726",
+              "name": "source_branch",
+              "value": "={{ $('Get MR Changes').item.json.source_branch }}",
+              "type": "string"
+            },
+            {
+              "id": "c2e655a9-37ea-4c4b-a6f2-d77699d09270",
+              "name": "target_branch",
+              "value": "={{ $('Get MR Changes').item.json.target_branch }}",
+              "type": "string"
+            },
+            {
+              "id": "61902db2-aa33-47cd-9ae6-90d4e7dea8f0",
+              "name": "changes",
+              "value": "={{ $json.changes }}",
+              "type": "array"
+            },
+            {
+              "id": "2eb9fc1f-d92b-4a31-b2e4-1f2bc1bbc760",
+              "name": "change_type_counts",
+              "value": "={{ $json.change_type_counts }}",
+              "type": "object"
+            },
+            {
+              "id": "8e636041-5ab3-45b2-b9e5-98779119a1fd",
+              "name": "target_file",
+              "value": "={{ $('When Executed by Another Workflow').item.json.body.object_attributes.position.new_path }}",
+              "type": "string"
+            },
+            {
+              "id": "20e2a9bd-f52d-4a6d-8840-773205652274",
+              "name": "body",
+              "value": "={{ $('When Executed by Another Workflow').item.json.body }}",
+              "type": "object"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [672, 0],
+      "id": "f570225a-be3d-4069-9a44-cac9549e9bb9",
+      "name": "Set MR Info"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://lab.ssafy.com/api/v4/projects/{{ $('Set MR Info').item.json.project_id }}/merge_requests/{{ $('Set MR Info').item.json.mr_id }}/discussions/{{ $('Set MR Info').item.json.discussion_id }}/notes",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "gitlabApi",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "body",
+              "value": "={{ $json.output }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "cf765374-01cb-4fbc-8bcb-e400f9326729",
+      "name": "Write Detailed Comment",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1248, 128],
+      "credentials": {
+        "gitlabApi": {
+          "id": "YOUR_GITLAB_CREDENTIAL_ID",
+          "name": "GitLab"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {
+          "temperature": 0.2
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [912, 352],
+      "id": "4e342ac0-f98a-4b67-a0ba-b565c08fcc01",
+      "name": "Google Gemini Chat Model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "YOUR_GEMINI_CREDENTIAL_ID",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [1472, 0],
+      "id": "a5ec71fd-eccc-4d03-9dc1-3a6a45ea9b25",
+      "name": "Merge Output"
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "=n8n-rev-{{ $('Set MR Info').item.json.project_id }}-{{ $('Set MR Info').item.json.iid }}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryRedisChat",
+      "typeVersion": 1.5,
+      "position": [1040, 352],
+      "id": "262df381-b0ff-4832-994e-ca77ea74c887",
+      "name": "Redis Chat Memory",
+      "credentials": {
+        "redis": {
+          "id": "YOUR_REDIS_CREDENTIAL_ID",
+          "name": "Redis account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const webhookBody = $node[\"Set MR Info\"].json.body; // 원본 웹훅 데이터\nconst reviewText = $node[\"Write Detailed Comment\"].json.body; // AI 리뷰 내용\n\nreturn {\n  json: {\n    id: $input.item.json.id,\n    created_at: $input.item.json.created_at,\n    body: reviewText,\n    info: {\n      type: \"상세 리뷰\",\n      project_name: webhookBody?.project?.name || \"프로젝트\",\n      project_url: webhookBody?.project?.web_url || \"#\",\n      mr_title: $node[\"Set MR Info\"].json.title,\n      mr_url: webhookBody?.merge_request?.url || webhookBody?.object_attributes?.url || \"#\"\n    }\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1696, 0],
+      "id": "81b73ad2-cf5a-4323-9a96-e7af494c570b",
+      "name": "Build Final Ouput"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Get MR Changes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code Review Agent": {
+      "main": [
+        [
+          {
+            "node": "Write Detailed Comment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get MR Changes": {
+      "main": [
+        [
+          {
+            "node": "MR Preprocessing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MR Preprocessing": {
+      "main": [
+        [
+          {
+            "node": "Set MR Info",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set MR Info": {
+      "main": [
+        [
+          {
+            "node": "Code Review Agent",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write Detailed Comment": {
+      "main": [
+        [
+          {
+            "node": "Merge Output",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Code Review Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Output": {
+      "main": [
+        [
+          {
+            "node": "Build Final Ouput",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Redis Chat Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "Code Review Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false
+  },
+  "versionId": "1589a21c-0414-49fb-ade8-43f3873d1753",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "YOUR_N8N_INSTANCE_ID"
+  },
+  "id": "XR_C4SwSzNCNY_Q51ZVnu",
+  "tags": []
+}

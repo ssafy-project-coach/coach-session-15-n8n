@@ -1,0 +1,669 @@
+{
+  "name": "B: ReviewBot 메인 컨트롤러",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "4c4dbe7d-cc4d-4641-b393-6d17ac6e8fd6",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-480, -256],
+      "id": "72ce4e4f-6a95-4e6f-bc32-c5014d32d2cd",
+      "name": "Webhook",
+      "webhookId": "4c4dbe7d-cc4d-4641-b393-6d17ac6e8fd6"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.body.event_type }}",
+                    "rightValue": "merge_request",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "731222f7-87df-45f1-b2e1-17d842dbc784"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "MR"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "75d8fc3d-7923-4e6e-9985-872cb2726bd1",
+                    "leftValue": "={{ $json.body.event_type }}",
+                    "rightValue": "note",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "note"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "c56ae821-3e80-4e27-be6d-fbdaa24d2f84",
+                    "leftValue": "={{ $json.body.event_type }}",
+                    "rightValue": "DiscussionNote",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "DiscussionNote"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [-256, -272],
+      "id": "30a12484-0e61-45b8-a21e-ba1d1fa0f88b",
+      "name": "Check Event Type"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.item.json.body;\n\nif (!body) {\n  return []; \n}\n\nconst isComment = !!body.merge_request;\nconst mr = isComment ? body.merge_request : body.object_attributes;\n\nif (!mr || !mr.iid) return [];\n\nconst projectId = body.project?.id || mr.target_project_id || body.project_id;\nconst targetBranch = (mr.target_branch || \"\").toLowerCase();\nconst description = mr.description || \"\";\nconst noteText = body.object_attributes?.note || \"\";\n\n// TODO: 아래 브랜치명일 경우 작동하지 않습니다. 팀 컨벤션에 맞게 수정하세요 (보통 master, release에 MR할 땐 대량의 changes가 발생하므로 exclude 해두는 것)\nconst excludedBranches = [\"master\", \"release\"]; \nconst isExcluded = excludedBranches.includes(targetBranch);\nconst forceReview = description.includes('#force-review') || noteText.includes('#force-review');\n\nif (!isExcluded || forceReview) {\n  return {\n    json: {\n      ...$input.item.json,\n      info: {\n        type: isComment ? \"댓글 리뷰\" : \"MR 리뷰\",\n        project_name: body.project?.name || \"Project\",\n        project_url: body.project?.web_url || body.project?.git_http_url,\n        mr_title: mr.title,\n        mr_url: mr.url\n      },\n      body: {\n        ...body,\n        project: {\n          ...(body.project || {}),\n          id: projectId\n        },\n        merge_request: {\n          ...(body.merge_request || {}),\n          iid: mr.iid\n        },\n        object_attributes: {\n          ...(body.object_attributes || {}),\n          iid: mr.iid\n        }\n      },\n      project: { id: projectId },\n      object_attributes: { iid: mr.iid }\n    }\n  };\n}\n\nreturn [];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [416, -256],
+      "id": "751e0052-9f83-4a21-b397-8b0bbc1b7466",
+      "name": "Filter Deployment"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://YOUR_MATTERMOST_DOMAIN/hooks/YOUR_WEBHOOK_TOKEN",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "text",
+              "value": "=#### :aiddalkkac: [{{ $json.info.type }}/팀[{{ $json.info.project_name }}]({{ $json.info.project_url }})] 리뷰봇 작동 :comp:\n- **대상 MR:** [{{ $json.info.mr_title }}]({{ $json.info.mr_url }})\n- **댓글 링크:** {{ $json.info.mr_url }}#note_{{ $json.id }}\n- **리뷰 시각:** {{ $json.created_at.toDateTime().setZone('Asia/Seoul').setLocale('ko').toFormat('M월 d일 (cccc) a h시 mm분') }}\n\n---\n###### :hekoko_shake: 리뷰 내용 요약\n```\n{{ $json.body.substring(0, 200) }}... \n```\n- [바로 확인하러 가기 :glass_mandu:]({{ $json.info.mr_url }}#note_{{ $json.id }})"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c2d25661-c8b0-46cc-a36e-f2ea85ac7d48",
+      "name": "Send Noti",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1312, -288]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [1088, -288],
+      "id": "b63ee5a3-6c67-445a-ad74-0d20c829b291",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "d3d61f07-eef2-4a9c-93af-b8d2e9a2b383",
+              "leftValue": "={{ $json.body.object_attributes.action }}",
+              "rightValue": "open",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            },
+            {
+              "id": "8b6a2c41-84de-4698-a54f-0c738dd7606a",
+              "leftValue": "={{ $json.body.object_attributes.action }}",
+              "rightValue": "reopen",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.2,
+      "position": [-32, -448],
+      "id": "c73afc8d-6e36-4861-8847-e15f3687e33d",
+      "name": "Filter OpenMR"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "7f8b5391-64cf-4f85-94b2-75a8b0912462",
+              "leftValue": "={{ $json.body.object_attributes.note.toLowerCase() }}",
+              "rightValue": "리뷰봇전체",
+              "operator": {
+                "type": "string",
+                "operation": "startsWith"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.2,
+      "position": [-32, -256],
+      "id": "2d29ecc7-b162-42c7-8f10-4c4bbbc26255",
+      "name": "Filter Comment - All"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "3868ba49-f134-4f00-9501-34e15b6d5488",
+              "name": "statKey",
+              "value": "mrAll",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [192, -448],
+      "id": "b060a31c-35ad-4152-85f1-b18f56ccb41e",
+      "name": "setStatKey - mrAll"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "dd7868e0-28fa-4884-9f2c-a568c00b9527",
+              "name": "statKey",
+              "value": "commentAll",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [192, -256],
+      "id": "6a659678-3e07-455d-bc30-432f2b24642a",
+      "name": "setStatKey - commentAll"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "lDFEqmcUwfrwCoCXa3ACp",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/lDFEqmcUwfrwCoCXa3ACp",
+          "cachedResultName": "B: ReviewBot Simple (전체 리뷰)"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [864, -288],
+      "id": "2fad3a2c-b1fd-409e-9cff-58c4d0f20170",
+      "name": "Call Simple ReviewBot"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "196fa6c7-b549-45d5-b7a6-f939c5b182ac",
+              "leftValue": "={{ $json.body.object_attributes.type }}",
+              "rightValue": "DiffNote",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            },
+            {
+              "id": "93a4c0dc-4c04-4deb-a25c-da2bff06b624",
+              "leftValue": "={{ $json.body.object_attributes.note.toLowerCase() }}",
+              "rightValue": "리뷰봇이것만",
+              "operator": {
+                "type": "string",
+                "operation": "startsWith"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.2,
+      "position": [-32, -64],
+      "id": "6f57ec96-94bc-4849-8d28-ab06d73f93a5",
+      "name": "Filter Comment - DiffNote"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "XR_C4SwSzNCNY_Q51ZVnu",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/XR_C4SwSzNCNY_Q51ZVnu",
+          "cachedResultName": "B: ReviewBot Delicate (상세 리뷰)"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [864, -96],
+      "id": "b15a5906-8805-46f0-bb7a-61ef3852c94c",
+      "name": "Call Delicate ReviewBot"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "7ae82cbd-d3d3-4269-83c1-d4e22e5d0359",
+              "name": "statKey",
+              "value": "commentDelicate",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [192, -64],
+      "id": "e9d6840b-056f-4d1f-9bb1-189c9ed646d4",
+      "name": "setStatKey - commentDelicate"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.statKey }}",
+                    "rightValue": "mrAll|commentAll",
+                    "operator": {
+                      "type": "string",
+                      "operation": "regex"
+                    },
+                    "id": "236ca25f-3fa1-4857-9939-3170b5a367d4"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "all"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "5d230f67-7aca-4f8a-b22e-f056c6a10983",
+                    "leftValue": "={{ $json.statKey }}",
+                    "rightValue": "commentDelicate",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "delicate"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [640, -192],
+      "id": "a9c25fc5-d9c3-4f3f-8a57-fee3051c34c5",
+      "name": "Route Review Type"
+    },
+    {
+      "parameters": {
+        "content": "⚠️ **Send Noti 노드 설정 필요**\n\n`Send Noti` 노드의 URL을\n여러분 팀 Mattermost 채널의\n**Incoming Webhook URL**로 교체하세요.\n\nMattermost → 채널 메뉴 → Integrations\n→ Incoming Webhooks에서 생성",
+        "height": 144,
+        "width": 176,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [1280, -128],
+      "typeVersion": 1,
+      "id": "2fedb20b-7a80-433f-bf2a-175598097538",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "Workflow 활성에 필요한 Credential을 등록하세요 (Ex. GitLab,  GPT API, Redis 등) ",
+        "height": 80,
+        "width": 224,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [-432, -384],
+      "typeVersion": 1,
+      "id": "92d973bf-f429-4ba6-9e16-60c823975593",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "## 📋 B: ReviewBot (메인) — 설정 가이드\n\n### 1️⃣ Credentials 등록 (먼저 완료)\n- **GitLab API**: Personal Access Token (`api` 스코프)\n- **Google Gemini(PaLM) API**: Gemini API Key\n- **Redis**: Redis 서버 접속 정보\n\n### 2️⃣ Send Noti 노드 설정\n- `URL` 필드를 팀 Mattermost 채널 **Incoming Webhook URL**로 교체\n\n### 3️⃣ 서브 워크플로우 연결 (중요!)\n- `Call Simple ReviewBot` 노드: **ReviewBot Simple** 워크플로우 선택\n- `Call Delicate ReviewBot` 노드: **ReviewBot Delicate** 워크플로우 선택\n- 세 파일을 모두 import한 후 각 노드에서 워크플로우를 재선택해야 합니다\n\n### 4️⃣ GitLab Webhook 등록\n- GitLab 프로젝트 → Settings → Webhooks\n- URL: `https://YOUR_N8N_HOST/webhook/[웹훅노드 Path 값]`\n- Trigger: **Merge request events**, **Comments**\n\n### 5️⃣ 리뷰봇 명령어\n- `리뷰봇전체` : MR 댓글로 입력 시 전체 변경사항 AI 리뷰\n- `리뷰봇이것만` : Diff 라인 댓글로 입력 시 해당 파일만 상세 리뷰",
+        "height": 520,
+        "width": 580,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-480, -640],
+      "id": "setup-guide-b-reviewbot-001",
+      "name": "Setup Guide Main"
+    },
+    {
+      "parameters": {
+        "content": "## ✨ 이 워크플로우가 하는 일\n\n**MR이 열리거나 다시 열릴 때**\n→ AI가 전체 변경사항을 분석해 코드 리뷰 코멘트를 MR에 자동 등록\n\n**MR 댓글에 `리뷰봇전체` 입력 시**\n→ 즉시 전체 AI 코드 리뷰 재실행\n\n**특정 코드 라인(DiffNote)에 `리뷰봇이것만` 입력 시**\n→ 해당 파일만 집중 분석해 해당 댓글 스레드에 답글로 상세 리뷰 등록\n\n**리뷰 제외 조건**\n→ `master`, `release` 브랜치 대상 MR은 기본 제외 (대량 diff 방지)\n→ MR 설명 또는 댓글에 `#force-review` 포함 시 강제 실행\n→ 이미지/바이너리/node_modules 등은 자동으로 리뷰에서 제외\n\n> 이 워크플로우는 **ReviewBot Simple**, **ReviewBot Delicate** 두 서브 워크플로우를 호출합니다\n> 세 파일을 모두 import한 후 연결해야 합니다",
+        "height": 340,
+        "width": 480,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-480, -1060],
+      "id": "feature-guide-b-reviewbot-001",
+      "name": "Feature Guide Main"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Check Event Type",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Event Type": {
+      "main": [
+        [
+          {
+            "node": "Filter OpenMR",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Filter Comment - All",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Filter Comment - DiffNote",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Deployment": {
+      "main": [
+        [
+          {
+            "node": "Route Review Type",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter OpenMR": {
+      "main": [
+        [
+          {
+            "node": "setStatKey - mrAll",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Comment - All": {
+      "main": [
+        [
+          {
+            "node": "setStatKey - commentAll",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "setStatKey - mrAll": {
+      "main": [
+        [
+          {
+            "node": "Filter Deployment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "setStatKey - commentAll": {
+      "main": [
+        [
+          {
+            "node": "Filter Deployment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Simple ReviewBot": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Send Noti",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Comment - DiffNote": {
+      "main": [
+        [
+          {
+            "node": "setStatKey - commentDelicate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Delicate ReviewBot": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "setStatKey - commentDelicate": {
+      "main": [
+        [
+          {
+            "node": "Filter Deployment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Review Type": {
+      "main": [
+        [
+          {
+            "node": "Call Simple ReviewBot",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Call Delicate ReviewBot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false
+  },
+  "versionId": "b75bb7ea-fcc3-4275-a25e-d9642e483770",
+  "meta": {
+    "instanceId": "YOUR_N8N_INSTANCE_ID"
+  },
+  "id": "rw_SEDuYoCG_GFVSTI08q",
+  "tags": []
+}

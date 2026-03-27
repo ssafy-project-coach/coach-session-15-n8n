@@ -1,0 +1,512 @@
+{
+  "name": "A: GitLab MR 알림",
+  "nodes": [
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "norm-1",
+              "name": "event_type",
+              "value": "={{ $json.body ? 'mr_open' : 'note_cmd' }}",
+              "type": "string"
+            },
+            {
+              "id": "norm-2",
+              "name": "=mr_title",
+              "value": "={{ $json.body ? $json.body.object_attributes.title : $json.title }}",
+              "type": "string"
+            },
+            {
+              "id": "norm-3",
+              "name": "mr_url",
+              "value": "={{ $json.body ? $json.body.object_attributes.url : $('User Mapping').item.json.body.object_attributes.url }}",
+              "type": "string"
+            },
+            {
+              "id": "norm-4",
+              "name": "sender_username",
+              "value": "={{ $json.body ? $json.body.user.username : $('User Mapping').item.json.body.user.username }}",
+              "type": "string"
+            },
+            {
+              "id": "norm-5",
+              "name": "author_username",
+              "value": "={{ $json.body ? $json.body.user.username : $json.author.username }}",
+              "type": "string"
+            },
+            {
+              "id": "norm-6",
+              "name": "reviewers",
+              "value": "={{ $json.body ? $json.body.reviewers : $json.reviewers }}",
+              "type": "array"
+            },
+            {
+              "id": "norm-7",
+              "name": "assignees",
+              "value": "={{ $json.body ? $json.body.assignees : $json.assignees }}",
+              "type": "array"
+            },
+            {
+              "id": "norm-8",
+              "name": "note",
+              "value": "={{ $json.body ? '' : ($('User Mapping').item.json.body.object_attributes.note || '') }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2336,
+        784
+      ],
+      "id": "984bb6f7-a8a1-4665-bb77-453e489d4b02",
+      "name": "Set: Normalize"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.item.json;\nconst userMap = $('User Mapping').item.json.user_map || {};\nconst config = $('Config').item.json;\n\nfunction toMM(u) { return userMap[u] || u; }\n\nconst sender = toMM(data.sender_username || '');\nconst author = toMM(data.author_username || '');\nconst targets = (data.reviewers?.length > 0 ? data.reviewers : data.assignees) || [];\nconst targetStr = targets.length > 0\n  ? targets.map(r => `@${toMM(r.username)}`).join(' ')\n  : '(리뷰어 미지정)';\n\nconst c1 = config.cmd_review_done || '/리뷰완료';\nconst c2 = config.cmd_review_again || '/리뷰다시';\nconst deadline = config.review_deadline || '24시간 이내';\nconst note = (data.note || '').trim();\n\nlet message = '';\n\nif (data.event_type === 'mr_open') {\n  message = [\n    '----',\n    `##### :gitlab: @${sender}님이 새로운 MR을 등록했습니다!`,\n    '',\n    `- **대상 MR:** [${data.mr_title}](${data.mr_url})\\n`,\n    `- **대표 리뷰어:** ${targetStr}\\n`,\n    '----\\n',\n    `:gunpang_timer: **${deadline}** 확인을 부탁드립니다.\\n`,\n    ':gunpang_paper_log: **MR 페이지 댓글 명령어 안내**',\n    `- **\\`${c1}\\`** : (리뷰어용) 리뷰 완료 후, MR 작성자에게 확인을 요청합니다.`,\n    `- **\\`${c2}\\`** : (작성자용) 리뷰 반영 완료 후, 리뷰어에게 추가 질문/재검토를 요청합니다.\\n`,\n    '----'\n  ].join('\\n');\n} else if (note.startsWith(c1)) {\n  message = [\n    '----',\n    `##### :gitlab: @${sender}님이 리뷰를 완료했습니다! :comp:`,\n    `- **대상 MR:** [${data.mr_title}](${data.mr_url})\\n`,\n    `- **요청 대상:** @${author}\\n`,\n    '----\\n',\n    `:gunpang_timer: **${deadline}** 확인을 부탁드립니다.\\n`,\n    '----'\n  ].join('\\n');\n} else if (note.startsWith(c2)) {\n  const afterCmd = note.slice(c2.length).trim();\n  const mentionMatch = afterCmd.match(/^@(\\S+)/);\n  const finalTargetStr = mentionMatch ? `@${toMM(mentionMatch[1])}` : targetStr;\n  message = [\n    '----',\n    `##### :gitlab: @${sender}님이 추가 확인을 요청했습니다! :please_call:`,\n    '',\n    `- **대상 MR:** [${data.mr_title}](${data.mr_url})\\n`,\n    `- **요청 대상:** ${finalTargetStr}\\n`,\n    '----\\n',\n    `:gunpang_timer: **${deadline}** 확인을 부탁드립니다.\\n`,\n    '----'\n  ].join('\\n');\n} else {\n  return [];\n}\n\nreturn [{ json: { message } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2560,
+        784
+      ],
+      "id": "f2568e5a-11a9-470a-8e1b-d54872d4e8b4",
+      "name": "Build Message"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "gitlab-mr-notification",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        976,
+        784
+      ],
+      "id": "267f4baf-930c-4428-9e38-4ffc957f053d",
+      "name": "GitLab Webhook",
+      "webhookId": "gitlab-mr-notification"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "cfg-a-1",
+              "name": "mm_webhook_url",
+              "value": "https://meeting.ssafy.com/hooks/YOUR_MATTERMOST_WEBHOOK_TOKEN",
+              "type": "string"
+            },
+            {
+              "id": "cfg-a-3",
+              "name": "gitlab_base_url",
+              "value": "https://lab.ssafy.com",
+              "type": "string"
+            },
+            {
+              "id": "cfg-a-5",
+              "name": "review_deadline",
+              "value": "24시간 이내",
+              "type": "string"
+            },
+            {
+              "id": "cfg-a-6",
+              "name": "cmd_review_done",
+              "value": "/리뷰완료",
+              "type": "string"
+            },
+            {
+              "id": "cfg-a-7",
+              "name": "cmd_review_again",
+              "value": "/리뷰다시",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1200,
+        784
+      ],
+      "id": "dacb2e05-1731-47c0-ac4f-726fae3c3362",
+      "name": "Config"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "um-map",
+              "name": "user_map",
+              "value": "={{ ({\n  'gitlab_username1': 'mm_username1',\n  'gitlab_username2': 'mm_username2'\n}) }}",
+              "type": "object"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1440,
+        784
+      ],
+      "id": "676a22a1-c869-4455-8d13-f862862dd1c9",
+      "name": "User Mapping"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "sw-mr",
+                    "leftValue": "={{ $json.body.event_type }}",
+                    "rightValue": "merge_request",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "MR"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "sw-note",
+                    "leftValue": "={{ $json.body.event_type }}",
+                    "rightValue": "note",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "note"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1664,
+        784
+      ],
+      "id": "30641cd3-2f7a-415a-8fd9-a7031612e337",
+      "name": "Switch: Event Type"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "701a1525-1ff2-4054-b580-3cc74fcec3fb",
+              "leftValue": "={{ $json.body.object_attributes.action }}",
+              "rightValue": "=^(open|reopen)$",
+              "operator": {
+                "type": "string",
+                "operation": "regex"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.3,
+      "position": [
+        1888,
+        688
+      ],
+      "id": "49b7c0f9-f97d-46ba-9501-d27a2bf8c05c",
+      "name": "Filter: MR Open"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "701a1525-1ff2-4054-b580-3cc74fcec3fb",
+              "leftValue": "={{ $json.body.object_attributes.noteable_type }}",
+              "rightValue": "MergeRequest",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "8e4e3836-cbf6-4630-8c85-5d53764c3f9d",
+              "leftValue": "={{ $json.body.object_attributes.note.trim() || '' }}",
+              "rightValue": "=^({{ $('Config').item.json.cmd_review_done }}|{{ $('Config').item.json.cmd_review_again }})",
+              "operator": {
+                "type": "string",
+                "operation": "regex"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.3,
+      "position": [
+        1888,
+        880
+      ],
+      "id": "f66aebe8-372b-4acc-8ca1-26d44832a101",
+      "name": "Filter: Command Note"
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Config').item.json.gitlab_base_url }}/api/v4/projects/{{ $json.body.project.id }}/merge_requests/{{ $json.body.merge_request.iid }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "gitlabApi",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2112,
+        880
+      ],
+      "id": "17c58284-2198-4a3c-a885-e3d2949b9076",
+      "name": "GitLab: Get MR Details",
+      "credentials": {
+        "gitlabApi": {
+          "id": "YOUR_GITLAB_CREDENTIAL_ID",
+          "name": "GitLab"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').item.json.mm_webhook_url }}",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "=text",
+              "value": "={{ $json.message }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2784,
+        784
+      ],
+      "id": "0e4a574e-8f77-4bd6-ab4b-6c119ad8bac8",
+      "name": "MM: Send Notification"
+    },
+    {
+      "parameters": {
+        "content": "## 📋 A: GitLab MR 알림 — 설정 가이드\n\n### 1️⃣ Config 노드 설정\n- `mm_webhook_url` : Mattermost 채널의 **Incoming Webhook URL**\n  - Mattermost → 채널 메뉴 → Integrations → Incoming Webhooks에서 생성\n- `gitlab_base_url` : GitLab 서버 주소 (기본값 `https://lab.ssafy.com` 그대로 사용 가능)\n- `review_deadline` : 리뷰 요청 마감 안내 문구 (자유롭게 변경 가능)\n- `cmd_review_done` / `cmd_review_again` : MR 댓글 명령어 (기본값 그대로 사용 권장)\n\n### 2️⃣ User Mapping 노드 설정\n- GitLab username → Mattermost username 매핑 테이블\n- 예시: `{ 'gitlab_id1': 'mm_id1', 'gitlab_id2': 'mm_id2' }`\n- 팀원 모두 추가해야 멘션이 정확하게 작동합니다\n\n### 3️⃣ GitLab Credential 등록\n- n8n 좌측 메뉴 → Credentials → **GitLab API** 추가\n- GitLab에서 Personal Access Token 발급 (`api` 스코프 필요)\n- `GitLab: Get MR Details` 노드에서 해당 Credential 선택\n\n### 4️⃣ GitLab Webhook 등록\n- GitLab 프로젝트 → Settings → Webhooks\n- URL: `https://YOUR_N8N_HOST/webhook/gitlab-mr-notification`\n- Trigger 체크: **Merge request events**, **Comments**\n- Secret Token은 선택사항 (미사용 시 비워두기)",
+        "height": 500,
+        "width": 580,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        976,
+        240
+      ],
+      "id": "setup-guide-a-mr-alert-001",
+      "name": "Setup Guide"
+    },
+    {
+      "parameters": {
+        "content": "## ✨ 이 워크플로우가 하는 일\n\n**MR이 열리거나 다시 열릴 때**\n→ 지정된 MM 채널에 알림 전송\n→ 리뷰어(또는 담당자) 멘션 포함\n\n**MR 댓글에 `/리뷰완료` 입력 시**\n→ MR 작성자에게 \"리뷰 끝났으니 확인해!\" MM 알림 전송\n\n**MR 댓글에 `/리뷰다시` 입력 시**\n→ 기본적으로 해당 MR의 리뷰어에게 \"다시 봐줘!\" MM 알림 전송\n→ `/리뷰다시 @아이디` 로 입력하면 해당 아이디에 매핑된 MM 유저를 직접 호출\n\n> GitLab username → MM username 매핑은 **User Mapping** 노드에서 설정",
+        "height": 300,
+        "width": 440,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        976,
+        -120
+      ],
+      "id": "feature-guide-a-mr-alert-001",
+      "name": "Feature Guide"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Set: Normalize": {
+      "main": [
+        [
+          {
+            "node": "Build Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Message": {
+      "main": [
+        [
+          {
+            "node": "MM: Send Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GitLab Webhook": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "User Mapping",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "User Mapping": {
+      "main": [
+        [
+          {
+            "node": "Switch: Event Type",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch: Event Type": {
+      "main": [
+        [
+          {
+            "node": "Filter: MR Open",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Filter: Command Note",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter: MR Open": {
+      "main": [
+        [
+          {
+            "node": "Set: Normalize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter: Command Note": {
+      "main": [
+        [
+          {
+            "node": "GitLab: Get MR Details",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GitLab: Get MR Details": {
+      "main": [
+        [
+          {
+            "node": "Set: Normalize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "YOUR_ERROR_WORKFLOW_ID"
+  },
+  "versionId": "e5ee3408-70d9-4fbe-aa27-60934e5c2ef2",
+  "meta": {
+    "instanceId": "YOUR_N8N_INSTANCE_ID"
+  },
+  "id": "KggDOKrhqVE0HQQI3zjwY",
+  "tags": []
+}

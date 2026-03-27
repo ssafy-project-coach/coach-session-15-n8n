@@ -1,0 +1,656 @@
+{
+  "name": "C: Jenkins 빌드 알림 + AI 에러 예측",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## ⚙️ C: Jenkins 빌드 알림 — 설정 가이드\n\n### 1️⃣ Config 노드에서 수정\n- `mm_webhook_url` — Mattermost Incoming Webhook URL\n  - Mattermost → 채널 메뉴 → Integrations → Incoming Webhooks에서 생성\n- `gitlab_base_url` — GitLab 서버 주소 (기본값 `https://lab.ssafy.com`)\n- `job_display_names` — Jenkins 잡 이름 → 알림에 표시할 이름 JSON\n  - 예: `{\"my-backend-job\": \"Backend Spring\"}`\n- `link_[잡이름]_[브랜치]` — 빌드 성공 시 알림에 포함할 서비스 링크\n  - 잡이름의 `-`는 `_`로 변환 (예: `link_dev_backend_spring_develop`)\n  - 링크가 필요없는 경우 빈 문자열 `\"\"` 유지\n\n### 2️⃣ n8n Credentials 등록\n- **Google Gemini(PaLM) API**: Gemini API Key\n  - `AI Agent` → `Google Gemini Chat Model` 노드에 적용\n- **GitLab API**: Personal Access Token (`api` 스코프)\n  - `Get MR by Commit`, `Get MR Changes` 노드에 적용\n\n### 3️⃣ Jenkinsfile 설정\nJenkins `post` 블록에서 n8n Webhook으로 아래 필드를 전송해야 합니다:\n```\nstatus, branch, build_title, build_url, author,\nbuild_number, job_name, git_commit,\ngit_project_path, error_log (실패 시만)\n```\n\n### 4️⃣ Jenkins Webhook URL\n`https://YOUR_N8N_HOST/webhook/jenkins-build`",
+        "height": 440,
+        "width": 460,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        19616,
+        6640
+      ],
+      "id": "6f1d6290-995f-4b02-b1cb-4720de1cab4d",
+      "name": "Setup Guide"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "cfg-c-1",
+              "name": "mm_webhook_url",
+              "value": "https://YOUR_MATTERMOST_DOMAIN/hooks/YOUR_WEBHOOK_TOKEN",
+              "type": "string"
+            },
+            {
+              "id": "cfg-c-4",
+              "name": "job_display_names",
+              "value": "{\"dev-backend-spring\": \"DEV Backend Spring\", \"dev-backend-fastapi\": \"DEV Backend FastAPI\", \"dev-frontend-dashboard\": \"DEV Frontend Dashboard\", \"dev-frontend-app\": \"DEV Frontend App (PWA)\"}",
+              "type": "string"
+            },
+            {
+              "id": "cfg-c-5",
+              "name": "gitlab_base_url",
+              "value": "https://lab.ssafy.com",
+              "type": "string"
+            },
+            {
+              "id": "cfg-link-1",
+              "name": "link_dev_backend_spring_develop",
+              "value": "[ :springboot: **Backend Spring Test Server**](https://YOUR_BACKEND_URL/swagger-ui/index.html)",
+              "type": "string"
+            },
+            {
+              "id": "cfg-link-2",
+              "name": "link_dev_backend_spring_master",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "cfg-link-3",
+              "name": "link_dev_backend_fastapi_develop",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "cfg-link-4",
+              "name": "link_dev_backend_fastapi_master",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "cfg-link-5",
+              "name": "link_dev_frontend_dashboard_develop",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "cfg-link-6",
+              "name": "link_dev_frontend_dashboard_master",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "cfg-link-7",
+              "name": "link_dev_frontend_app_develop",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "cfg-link-8",
+              "name": "link_dev_frontend_app_master",
+              "value": "[:electron: **앱 이름 Desktop App Download**](https://YOUR_CDN_URL/app-download)\n\n[:react: **앱 이름 Web Service**](https://YOUR_WEB_SERVICE_URL)",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        19920,
+        7152
+      ],
+      "id": "07871fb4-eea6-4ede-888d-65f746cd8df4",
+      "name": "Config"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c-if-cond",
+              "leftValue": "={{ $json.body.status }}",
+              "rightValue": "success",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        20144,
+        7152
+      ],
+      "id": "39ceb366-75db-4d80-9ff5-ff765c0d7331",
+      "name": "IF: Build Success?"
+    },
+    {
+      "parameters": {
+        "jsCode": "const webhookBody = $input.item.json.body;\nconst config = $('Config').item.json;\n\nconst branch = webhookBody?.branch || 'unknown';\nconst buildTitle = webhookBody?.build_title || '';\nconst author = webhookBody?.author || '';\nconst buildUrl = webhookBody?.build_url || '';\nconst buildNumber = webhookBody?.build_number || '';\nconst jobName = webhookBody?.job_name || '';\n\nlet jobDisplayMap = {};\ntry { jobDisplayMap = JSON.parse(config.job_display_names || '{}'); } catch(e) {}\nconst jobDisplayName = jobDisplayMap[jobName] || jobName;\n\nreturn [{\n  json: {\n    branch,\n    buildTitle,\n    author,\n    buildUrl,\n    buildNumber,\n    jobName,\n    jobDisplayName\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        20368,
+        7056
+      ],
+      "id": "91c6a551-11bd-4a4c-bc0a-c08e5439b993",
+      "name": "Success Context"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').item.json.mm_webhook_url }}",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "text",
+              "value": "={{ $('Build Success Message').item.json.text }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        20816,
+        7056
+      ],
+      "id": "34a9dcb5-3193-45db-932d-59effa10c09a",
+      "name": "MM: 빌드 성공 알림"
+    },
+    {
+      "parameters": {
+        "jsCode": "const webhookBody = $input.item.json.body;\nconst config = $('Config').item.json;\n\nconst errorLog = webhookBody?.error_log || '에러 로그 없음';\nconst branch = webhookBody?.branch || 'unknown';\nconst buildTitle = webhookBody?.build_title || '';\nconst author = webhookBody?.author || '';\nconst buildUrl = webhookBody?.build_url || '';\nconst buildNumber = webhookBody?.build_number || '';\nconst jobName = webhookBody?.job_name || '';\nconst gitCommit = webhookBody?.git_commit || '';\nconst gitProjectPath = webhookBody?.git_project_path || '';\n\nlet jobDisplayMap = {};\ntry { jobDisplayMap = JSON.parse(config.job_display_names || '{}'); } catch(e) {}\nconst jobDisplayName = jobDisplayMap[jobName] || jobName;\n\nconst prompt = `Jenkins 빌드가 실패했습니다. 에러 로그를 분석해서 실패 원인을 예측하고 해결 방법을 한국어로 간결하게 제안해주세요.\\n\\n## 빌드 정보\\n- 브랜치: ${branch}\\n- 작성자: ${author}\\n- MR/커밋: ${buildTitle}\\n\\n## 에러 로그\\n\\`\\`\\`\\n${errorLog.substring(0, 5000)}\\n\\`\\`\\``;\n\nreturn [{\n  json: {\n    prompt,\n    branch,\n    buildTitle,\n    author,\n    buildUrl,\n    buildNumber,\n    jobName,\n    jobDisplayName,\n    gitCommit,\n    gitProjectPath,\n    errorLog: errorLog.substring(0, 3000)\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        20368,
+        7248
+      ],
+      "id": "7477f0a3-b41e-4534-afd5-91bcccea890c",
+      "name": "Build Analysis Prompt"
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Config').item.json.gitlab_base_url + '/api/v4/projects/' + $json.projectPath + '/merge_requests/' + $json.mrIid + '/changes' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "gitlabApi",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        21264,
+        7184
+      ],
+      "id": "65fd8e32-1655-413d-b4f7-37e98e966022",
+      "name": "Get MR Changes",
+      "credentials": {
+        "gitlabApi": {
+          "id": "YOUR_GITLAB_CREDENTIAL_ID",
+          "name": "GitLab"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const changes = $input.item.json.changes || [];\nlet processedChanges = [];\n\nconst skipExtensions = [\n  '.jpg', '.jpeg', '.png', '.gif', '.svg', '.ico', '.webp', '.bmp', '.tiff',\n  '.mp3', '.wav', '.ogg', '.flac', '.aac', '.m4a',\n  '.mp4', '.webm', '.avi', '.mov', '.mkv', '.flv',\n  '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',\n  '.zip', '.rar', '.tar', '.gz', '.7z',\n  '.bin', '.exe', '.dll', '.so', '.dylib',\n  '.ttf', '.otf', '.woff', '.woff2',\n  '.psd', '.ai', '.sketch'\n];\n\nfunction shouldProcessFile(filePath) {\n  const lowerPath = filePath.toLowerCase();\n  for (const ext of skipExtensions) {\n    if (lowerPath.endsWith(ext)) return false;\n  }\n  const skipDirs = ['node_modules/', 'dist/', 'build/'];\n  for (const dir of skipDirs) {\n    if (lowerPath.includes(dir)) return false;\n  }\n  return true;\n}\n\nfunction isBinaryContent(diff) {\n  if (diff.includes('Binary files') && diff.includes('differ')) return true;\n  if (diff.includes('\\0')) return true;\n  const base64Pattern = /^[A-Za-z0-9+/=]{20,}$/m;\n  const lines = diff.split('\\n');\n  let base64Lines = 0;\n  for (let i = 0; i < Math.min(lines.length, 10); i++) {\n    if (base64Pattern.test(lines[i])) base64Lines++;\n  }\n  return base64Lines > 5;\n}\n\nfunction getChangeType(change) {\n  const { new_path, old_path, diff } = change;\n  if (new_path === '/dev/null' || diff.startsWith('deleted file mode')) return 'delete';\n  if (old_path !== new_path && old_path !== '/dev/null') {\n    const actualDiffLines = diff.split('\\n')\n      .filter(line => line.startsWith('+') || line.startsWith('-'))\n      .filter(line => !line.startsWith('+++') && !line.startsWith('---'));\n    if (actualDiffLines.length === 0) return 'rename';\n    return 'rename+modify';\n  }\n  if (old_path === '/dev/null' || diff.startsWith('new file mode')) return 'add';\n  return 'modify';\n}\n\nfor (const change of changes) {\n  const { old_path, new_path, diff } = change;\n  const changeType = getChangeType(change);\n  if ((changeType === 'add' || changeType === 'modify' || changeType === 'rename+modify') &&\n      shouldProcessFile(new_path) &&\n      !isBinaryContent(diff)) {\n    const isTooLarge = diff.length > 10000;\n    const processedDiff = isTooLarge\n      ? `${diff.substring(0, 5000)}... (내용 생략) ...${diff.substring(diff.length - 5000)}`\n      : diff;\n    processedChanges.push({\n      file_path: new_path,\n      old_path: old_path !== new_path ? old_path : null,\n      change_type: changeType,\n      is_summarized: isTooLarge,\n      diff: processedDiff\n    });\n  }\n}\n\nreturn { json: { changes: processedChanges } };"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        21488,
+        7184
+      ],
+      "id": "2d047c1d-8ef2-420d-bd5e-8a98ef6c0bcc",
+      "name": "MR Preprocessing"
+    },
+    {
+      "parameters": {
+        "jsCode": "const base = $('Build Analysis Prompt').item.json;\nconst changes = $json.changes || [];\n\n// Set MR Info가 MR URL을 찾았으면 그걸 우선 사용\nlet resolvedBuildUrl = base.buildUrl;\ntry {\n  const mrUrl = $('Set MR Info').item.json.buildUrl;\n  if (mrUrl) resolvedBuildUrl = mrUrl;\n} catch(e) {}\n\nlet mrSection = '';\nif (changes.length > 0) {\n  mrSection = '\\n\\n## 관련 MR 변경 코드\\n(빌드 실패 시점 MR 코드 변경사항)\\n\\n';\n  for (const change of changes.slice(0, 5)) {\n    mrSection += `### ${change.file_path}\\n\\`\\`\\`\\n${change.diff.substring(0, 1500)}\\n\\`\\`\\`\\n\\n`;\n  }\n}\n\nreturn [{\n  json: {\n    ...base,\n    buildUrl: resolvedBuildUrl,\n    prompt: base.prompt + mrSection\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        21712,
+        7248
+      ],
+      "id": "ab9cda42-d996-4398-a530-10083e6cdf6e",
+      "name": "Enrich AI Prompt"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').item.json.mm_webhook_url }}",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "text",
+              "value": "={{ $('Build Failure Message').item.json.text }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        22512,
+        7248
+      ],
+      "id": "1076cd43-05e2-421d-b65d-7808179b3020",
+      "name": "MM: 빌드 실패 + AI 예측"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.prompt }}",
+        "options": {
+          "systemMessage": "당신은 CI/CD 빌드 오류 분석 전문가입니다. Jenkins 빌드 실패 로그를 분석하여 원인을 진단하고 해결 방법을 제안합니다.\n\n작성 가이드:\n- 한국어로 작성하세요\n- 에러의 핵심 원인을 먼저 설명하세요\n- MR 변경 코드가 제공된 경우, 코드의 어느 부분이 문제인지 구체적으로 지적하세요\n- 구체적인 해결 방법을 제안하세요\n- 간결하게 작성하세요 (500자 이내)\n- 마크다운 형식(#, ##, -, * 등)을 사용하지 마세요"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.8,
+      "position": [
+        21936,
+        7248
+      ],
+      "id": "338999c2-8f15-4f3c-bbce-b02402f1b066",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "options": {
+          "temperature": 0.2
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        21936,
+        7440
+      ],
+      "id": "65ca9842-e08d-422c-987b-4ceccce7fc72",
+      "name": "Google Gemini Chat Model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "YOUR_GEMINI_CREDENTIAL_ID",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Config').item.json.gitlab_base_url + '/api/v4/projects/' + encodeURIComponent($('Build Analysis Prompt').item.json.gitProjectPath) + '/repository/commits/' + $('Build Analysis Prompt').item.json.gitCommit + '/merge_requests' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "gitlabApi",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        20592,
+        7248
+      ],
+      "id": "b143b247-44d4-488f-b2e8-b6dd57e60012",
+      "name": "Get MR by Commit",
+      "credentials": {
+        "gitlabApi": {
+          "id": "YOUR_GITLAB_CREDENTIAL_ID",
+          "name": "GitLab"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const base = $('Build Analysis Prompt').item.json;\nconst response = $input.item.json;\n\n// GitLab API returns array; n8n may parse as array or single object\nconst mrList = Array.isArray(response) ? response : [response];\nconst mr = mrList[0];\n\nif (!mr || !mr.iid) {\n  return [{ json: { ...base, mrIid: '', projectPath: '', buildUrl: base.buildUrl } }];\n}\n\nconst mrIid = String(mr.iid);\nconst mrWebUrl = mr.web_url || '';\nconst gitlabBaseUrl = $('Config').item.json.gitlab_base_url;\nlet projectPath = '';\nconst pathMatch = mrWebUrl.replace(gitlabBaseUrl, '').match(/^\\/(.+?)\\/-\\/merge_requests/);\nif (pathMatch) {\n  projectPath = encodeURIComponent(pathMatch[1]);\n}\n\nreturn [{\n  json: {\n    ...base,\n    mrIid,\n    projectPath,\n    buildUrl: mrWebUrl || base.buildUrl\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        20816,
+        7248
+      ],
+      "id": "871a52b9-14e4-4679-a7d3-804c77d84f11",
+      "name": "Set MR Info"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c-got-mr-cond",
+              "leftValue": "={{ $json.mrIid }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals",
+                "name": "filter.operator.notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        21040,
+        7248
+      ],
+      "id": "be1f2743-610a-42b3-9842-35e7c4c66cb6",
+      "name": "IF: Got MR?"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "jenkins-build",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        19696,
+        7152
+      ],
+      "id": "b7d59aa9-65fa-4ce1-89a9-53aaf4640949",
+      "name": "Jenkins Webhook",
+      "webhookId": "jenkins-build"
+    },
+    {
+      "parameters": {
+        "jsCode": "const b = $('Build Analysis Prompt').item.json;\nconst buildUrl = $('Enrich AI Prompt').item.json.buildUrl;\nconst aiOutput = $json.output || '';\n\nlet text = '@here\\n#### :jenkins5: Jenkins Pipeline Failure :jenkins5:\\n';\ntext += '- **Target Branch:** `' + b.branch + '`\\n';\ntext += '- **Target Build:** [**' + b.jobName + '#' + b.buildNumber + '**](' + $('Jenkins Webhook').first().json.body.build_url + ')\\n';\ntext += '- [**관련 MR 바로 가기 :animal_bingo_head:**](' + buildUrl + ')\\n';\ntext += '---\\n';\ntext += '##### :gunpang_question: AI 예측 원인\\n```\\n';\ntext += aiOutput + '\\n```\\n';\ntext += '##### :gunpang_paper_log: 에러로그\\n```\\n';\ntext += b.errorLog + '\\n```';\n\nreturn [{ json: { text } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        22288,
+        7248
+      ],
+      "id": "70dbb401-c539-483a-827c-4f5b0d448f7d",
+      "name": "Build Failure Message"
+    },
+    {
+      "parameters": {
+        "jsCode": "const branch         = $json.branch;\nconst buildNumber    = $json.buildNumber;\nconst jobName        = $json.jobName;\n\nconst linkKey = 'link_' + jobName.replace(/-/g, '_') + '_' + branch;\nconst serviceLinks = $('Config').item.json[linkKey] || '';\n\nlet text = '@here\\n';\ntext += '#### :shinchan_dance: Jenkins Pipeline Success :shinchan_dance:\\n';\ntext += '- **대상 브랜치:** `' + branch + '`\\n';\ntext += '- **Target Build:** [**' + jobName + '#' + buildNumber + '**](' + $input.first().json.buildUrl + ')\\n';\nif (serviceLinks) {\n  text += '\\n---\\n##### 서비스 점검하러 가기 :shin_hyeong_man:\\n';\n  text += serviceLinks;\n}\n\nreturn [{ json: { text } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        20592,
+        7056
+      ],
+      "id": "e06fb760-fc32-43ae-8d21-dc5dd07b756c",
+      "name": "Build Success Message"
+    },
+    {
+      "parameters": {
+        "content": "## ✨ 이 워크플로우가 하는 일\n\n**Jenkins 빌드 성공 시**\n→ MM 채널에 성공 알림 전송\n→ 브랜치 + 빌드 번호 + 서비스 링크 포함\n→ job별/브랜치별 서비스 링크는 Config 노드에서 커스텀 가능\n\n**Jenkins 빌드 실패 시**\n→ MM 채널에 실패 알림 + AI 에러 원인 예측 함께 전송\n→ 에러 로그를 Google Gemini AI가 분석해 원인과 해결 방법 제안\n→ 빌드 실패 시점의 MR 코드 변경사항도 AI에게 함께 전달 (더 정확한 분석)\n→ 관련 MR 링크 포함\n\n**AI 에러 분석 흐름**\n1. Jenkins가 `git_commit` 값을 함께 전송\n2. GitLab API로 해당 커밋이 포함된 MR 자동 조회\n3. MR 코드 변경사항 + 에러 로그를 AI에게 전달\n4. AI 분석 결과를 MM 알림에 포함",
+        "height": 340,
+        "width": 460,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        19616,
+        6180
+      ],
+      "id": "feature-guide-c-jenkins-001",
+      "name": "Feature Guide Jenkins"
+    }
+  ],
+  "pinData": {
+    "Jenkins Webhook": [
+      {
+        "json": {
+          "headers": {
+            "content-type": "application/json",
+            "accept-encoding": "gzip, deflate, x-gzip",
+            "host": "n8n:5678",
+            "content-length": "625",
+            "connection": "keep-alive",
+            "user-agent": "Apache-HttpClient/5.6 (Java/21.0.9)"
+          },
+          "params": {},
+          "query": {},
+          "body": {
+            "status": "success",
+            "branch": "develop",
+            "build_title": "[🔀 BE] 예시 커밋 메시지",
+            "build_url": "https://YOUR_JENKINS_HOST/job/YOUR_JOB_NAME/1/",
+            "author": "홍길동",
+            "build_number": "1",
+            "job_name": "dev-backend-spring",
+            "git_commit": "abc1234def5678901234567890abcdef12345678",
+            "git_project_path": "your-group/your-project"
+          },
+          "webhookUrl": "https://YOUR_N8N_HOST/webhook/jenkins-build",
+          "executionMode": "production"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      }
+    ]
+  },
+  "connections": {
+    "Jenkins Webhook": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "IF: Build Success?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF: Build Success?": {
+      "main": [
+        [
+          {
+            "node": "Success Context",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Analysis Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Success Context": {
+      "main": [
+        [
+          {
+            "node": "Build Success Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Analysis Prompt": {
+      "main": [
+        [
+          {
+            "node": "Get MR by Commit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get MR by Commit": {
+      "main": [
+        [
+          {
+            "node": "Set MR Info",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set MR Info": {
+      "main": [
+        [
+          {
+            "node": "IF: Got MR?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF: Got MR?": {
+      "main": [
+        [
+          {
+            "node": "Get MR Changes",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enrich AI Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get MR Changes": {
+      "main": [
+        [
+          {
+            "node": "MR Preprocessing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MR Preprocessing": {
+      "main": [
+        [
+          {
+            "node": "Enrich AI Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enrich AI Prompt": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Build Failure Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Failure Message": {
+      "main": [
+        [
+          {
+            "node": "MM: 빌드 실패 + AI 예측",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Success Message": {
+      "main": [
+        [
+          {
+            "node": "MM: 빌드 성공 알림",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "YOUR_ERROR_WORKFLOW_ID"
+  },
+  "versionId": "262a414d-71d4-454a-b47c-daf2e7b0937b",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "YOUR_N8N_INSTANCE_ID"
+  },
+  "id": "L5I6CbWcD4e3sfNNhZzrB",
+  "tags": []
+}
