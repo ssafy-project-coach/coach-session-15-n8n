@@ -5,12 +5,13 @@
 n8n GitLab 자동화 Workflow 가이드 자료입니다.
 GitLab MR 알림, AI 코드 리뷰, Jenkins 빌드 알림을 자동화하는 n8n 워크플로우를 제공합니다.
 
-<a href="https://youtu.be/C5MM-1e39L0?si=v3vMjA5zPKT23yX2" target="_blank">
-<h2><img src="./assets/youtube.webp" width="30px" /> 싸피티비 코치세션 유튜브 🔗</h2>
-<img src="./assets/n8n-coach-session-thumbnail.webp" width="80%"/>
+## [<img src="./assets/youtube.webp" width="30px" alt="YouTube" /> 싸피티비 코치세션 유튜브 🔗](https://youtu.be/C5MM-1e39L0?si=v3vMjA5zPKT23yX2)
+
+<a href="https://youtu.be/C5MM-1e39L0?si=v3vMjA5zPKT23yX2">
+  <img src="./assets/n8n-coach-session-thumbnail.webp" width="80%" alt="싸피티비 코치세션 유튜브 썸네일" />
 </a>
 
-> ※ 이미지를 클릭하면 유튜브 사이트로 이동합니다.
+> https://youtu.be/C5MM-1e39L0?si=aCIWtYxrIkizMkax
 
 ---
 
